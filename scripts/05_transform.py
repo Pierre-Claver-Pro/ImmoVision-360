@@ -1,108 +1,133 @@
 import pandas as pd
 import os
 import numpy as np
+import google.generativeai as genai
+from PIL import Image
 
-print("Starting transform phase...")
+# ==============================
+# CONFIG API
+# ==============================
 
-# Charger données extract
-df = pd.read_csv("data/processed/filtered_elysee.csv")
+genai.configure(api_key="AIzaSyCAqhrj5hwiqknWPPbeypxzTIh1JJIBO6o")
 
-print(f"Initial shape: {df.shape}")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-# =========================
-# NETTOYAGE
-# =========================
+# ==============================
+# LOAD DATA
+# ==============================
 
-# Price float
-df["price"] = pd.to_numeric(df["price"], errors="coerce")
+df = pd.read_csv("../data/raw/tabular/listings.csv")
 
-# Host response rate
-if "host_response_rate" in df.columns:
-    df["host_response_rate"] = pd.to_numeric(
-        df["host_response_rate"],
-        errors="coerce"
-    )
+print("DATASET SHAPE :",df.shape)
 
-# Reviews
-if "reviews_per_month" in df.columns:
-    df["reviews_per_month"] = df["reviews_per_month"].fillna(0)
+# ==============================
+# DATA PROFILING
+# ==============================
 
-if "review_scores_rating" in df.columns:
-    df["review_scores_rating"] = df["review_scores_rating"].fillna(
-        df["review_scores_rating"].median()
-    )
+print("\nPRICE PROFILING")
+print(df["price"].describe())
 
-# Response time missing
-if "host_response_time" in df.columns:
-    df["host_response_time"] = df["host_response_time"].fillna("unknown")
+print("\nNAN FEATURES")
+print(df.isna().sum())
 
-# =========================
-# OUTLIERS PRICE
-# =========================
+print("\nCATEGORICAL FEATURES")
+print(df.select_dtypes(include="object").columns)
 
-df = df[df["price"] > 10]
-df = df[df["price"] < 5000]
+# ==============================
+# CLEAN PRICE
+# ==============================
 
-# =========================
-# FEATURES ECONOMIC
-# =========================
+df["price"] = df["price"].replace("$","",regex=True)
 
-# Multi property host
-df["multi_property_host"] = (
-    df["calculated_host_listings_count"] > 3
-).astype(int)
+df["price"] = df["price"].replace(",","",regex=True)
 
-# Commercial usage
-df["commercial_usage"] = (
-    df["availability_365"] > 200
-).astype(int)
+df["price"] = pd.to_numeric(df["price"],errors="coerce")
 
-# =========================
-# FEATURES SOCIAL
-# =========================
+# detect price outliers
 
-df["professional_host"] = (
-    df["host_response_rate"] > 90
-).astype(int)
+df["price_outlier"] = df["price"] > 1000
 
-# =========================
-# FEATURES QUALITY
-# =========================
+# ==============================
+# FILTER VALID IMAGES
+# ==============================
 
-df["high_rating"] = (
-    df["review_scores_rating"] > 4.5
-).astype(int)
+df = df[df["picture_url"].notna()]
 
-# =========================
-# IA FEATURES (mock safe)
-# =========================
+# TEST SAMPLE FIRST (important)
+df = df.sample(50,random_state=42)
 
-def fake_image_score():
-    return np.random.randint(0,3)
+# ==============================
+# IMAGE CLASSIFICATION
+# ==============================
 
-def fake_text_score():
-    return np.random.randint(0,2)
+results = []
 
-# Standardization score
-df["Standardization_Score"] = df["id"].apply(
-    lambda x: fake_image_score()
-)
+prompt = """
+Analyse cette image Airbnb.
 
-# Neighborhood impact
-df["Neighborhood_Impact"] = df["id"].apply(
-    lambda x: fake_text_score()
-)
+Classe STRICTEMENT dans UNE catégorie :
 
-# =========================
-# SAVE
-# =========================
+Industrialized :
+Appartement type hôtel, décor standard, minimaliste.
 
-os.makedirs("data/processed", exist_ok=True)
+Non-industrialized :
+Appartement personnel, décor vécu, objets personnels.
 
-output = "data/processed/transformed_elysee.csv"
+Irrelevant :
+Image ne montrant pas un logement intérieur
+(exemple : pont, rue, restaurant, monument).
 
-df.to_csv(output,index=False)
+Répond uniquement par :
 
-print("Transform completed")
-print(f"Final shape: {df.shape}")
-print(f"Saved: {output}")
+Industrialized
+Non-industrialized
+Irrelevant
+"""
+
+for index,row in df.iterrows():
+
+    listing_id = row["id"]
+
+    image_path = f"../data/raw/images/{listing_id}.jpg"
+
+    if os.path.exists(image_path):
+
+        try:
+
+            img = Image.open(image_path)
+
+            response = model.generate_content([prompt,img])
+
+            category = response.text.strip()
+
+            print(listing_id,category)
+
+            results.append(category)
+
+        except:
+
+            results.append("Error")
+
+    else:
+
+        results.append("Missing")
+
+# ==============================
+# CREATE FEATURES
+# ==============================
+
+df["Standardization_Score"] = results
+
+df["image_irrelevant"] = df["Standardization_Score"] == "Irrelevant"
+
+df["industrialized"] = df["Standardization_Score"] == "Industrialized"
+
+# ==============================
+# SAVE DATASET
+# ==============================
+
+os.makedirs("../data/processed",exist_ok=True)
+
+df.to_csv("../data/processed/transformed_elysee.csv",index=False)
+
+print("\nTRANSFORMATION DONE")
