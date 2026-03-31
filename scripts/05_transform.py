@@ -1,11 +1,10 @@
 import pandas as pd
 import os
-import numpy as np
 import google.generativeai as genai
 from PIL import Image
 
 # ==============================
-# CONFIG API
+# CONFIG GEMINI API
 # ==============================
 
 genai.configure(api_key="AIzaSyCAqhrj5hwiqknWPPbeypxzTIh1JJIBO6o")
@@ -13,12 +12,12 @@ genai.configure(api_key="AIzaSyCAqhrj5hwiqknWPPbeypxzTIh1JJIBO6o")
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 # ==============================
-# LOAD DATA
+# LOAD FILTERED DATASET
 # ==============================
 
-df = pd.read_csv("../data/raw/tabular/listings.csv")
+df = pd.read_csv("data/processed/filtered_elysee.csv")
 
-print("DATASET SHAPE :",df.shape)
+print("DATASET SIZE :",df.shape)
 
 # ==============================
 # DATA PROFILING
@@ -37,24 +36,26 @@ print(df.select_dtypes(include="object").columns)
 # CLEAN PRICE
 # ==============================
 
-df["price"] = df["price"].replace("$","",regex=True)
+df["price"] = df["price"].astype(str)
 
-df["price"] = df["price"].replace(",","",regex=True)
+df["price"] = df["price"].str.replace("$","",regex=False)
+
+df["price"] = df["price"].str.replace(",","",regex=False)
 
 df["price"] = pd.to_numeric(df["price"],errors="coerce")
 
-# detect price outliers
+# detect abnormal prices
 
 df["price_outlier"] = df["price"] > 1000
 
 # ==============================
-# FILTER VALID IMAGES
+# FILTER VALID IDS
 # ==============================
 
-df = df[df["picture_url"].notna()]
+df = df[df["id"].notna()]
 
-# TEST SAMPLE FIRST (important)
-df = df.sample(50,random_state=42)
+# IMPORTANT TEST SAMPLE FIRST
+df = df.head(5)
 
 # ==============================
 # IMAGE CLASSIFICATION
@@ -74,7 +75,7 @@ Non-industrialized :
 Appartement personnel, décor vécu, objets personnels.
 
 Irrelevant :
-Image ne montrant pas un logement intérieur
+Image ne montrant pas un intérieur logement
 (exemple : pont, rue, restaurant, monument).
 
 Répond uniquement par :
@@ -98,7 +99,7 @@ for index,row in df.iterrows():
 
             response = model.generate_content([prompt,img])
 
-            category = response.text.strip()
+            category = response.text.strip().replace(".","")
 
             print(listing_id,category)
 
@@ -123,11 +124,11 @@ df["image_irrelevant"] = df["Standardization_Score"] == "Irrelevant"
 df["industrialized"] = df["Standardization_Score"] == "Industrialized"
 
 # ==============================
-# SAVE DATASET
+# SAVE TRANSFORMED DATASET
 # ==============================
 
 os.makedirs("../data/processed",exist_ok=True)
 
 df.to_csv("../data/processed/transformed_elysee.csv",index=False)
 
-print("\nTRANSFORMATION DONE")
+print("\nTRANSFORMATION FINISHED")
