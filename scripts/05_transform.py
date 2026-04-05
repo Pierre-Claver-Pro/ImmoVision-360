@@ -106,11 +106,11 @@ for index,row in df.iterrows():
             results.append(category)
 
         except:
-
+      
             results.append("Error")
 
     else:
-
+        print(results)
         results.append("Missing")
 
 # ==============================

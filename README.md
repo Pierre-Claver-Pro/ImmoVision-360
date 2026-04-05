@@ -107,3 +107,5 @@ Les données sont maintenant prêtes pour :
 NLP
 Computer Vision
 Machine Learning
+
+![alt text](image.png)
